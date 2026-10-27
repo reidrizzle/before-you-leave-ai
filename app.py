@@ -10,6 +10,7 @@ Members:
 
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
 # Safely import cv2 to prevent crashes on Streamlit Cloud if libGL is missing
 try:
     import cv2
