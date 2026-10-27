@@ -90,14 +90,21 @@ st.markdown("""
 @st.cache_resource
 def load_yolo_model():
     if YOLO_AVAILABLE:
+        # Check if fine-tuned best.pt is present
+        import os
+        if os.path.exists("best.pt"):
+            try:
+                return YOLO("best.pt"), "Fine-Tuned YOLOv8s (best.pt)"
+            except Exception:
+                pass
         try:
-            return YOLO("yolov8n.pt")
+            return YOLO("yolov8n.pt"), "Base YOLOv8n (Pretrained)"
         except Exception as e:
             st.warning(f"Could not load YOLO weights: {e}")
-            return None
-    return None
+            return None, "None"
+    return None, "None"
 
-model = load_yolo_model()
+model, model_source_name = load_yolo_model()
 
 # Header
 st.markdown('<div class="main-header">Before You Leave: AI-Powered Personal Belongings Detection System</div>', unsafe_allow_html=True)
@@ -139,8 +146,10 @@ with st.sidebar:
             
     st.markdown("---")
     st.subheader("⚙️ Detection Parameters")
-    conf_thresh = st.slider("Confidence Threshold", min_value=0.15, max_value=0.85, value=0.35, step=0.05)
+    conf_thresh = st.slider("Confidence Threshold", min_value=0.15, max_value=0.85, value=0.28, step=0.05)
     show_boxes = st.checkbox("Show Bounding Boxes on Image", value=True)
+    
+    st.caption(f"🧠 **Active Model:** {model_source_name}")
     
     st.markdown("---")
     st.subheader("👥 Project Team: [Scuba]")
@@ -164,7 +173,6 @@ def draw_detections(img: Image.Image, detections: list) -> Image.Image:
     for det in detections:
         box = det["box"]
         x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-        # Ensure within bounds
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w, x2), min(h, y2)
         
@@ -187,16 +195,18 @@ def draw_detections(img: Image.Image, detections: list) -> Image.Image:
         
     return annotated
 
-# Helper to run detection on image
+# Helper to run detection on image with high accuracy & strict filtering
 def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
-    detections = []
+    raw_detections = []
     w, h = pil_img.size
     img_np = np.array(pil_img)
     
-    # 1. Run YOLO if available
+    # 1. Run YOLO with adaptive sensitivity
     if model is not None:
         try:
-            results = model(pil_img, conf=confidence_cutoff, verbose=False)
+            # Run at adaptive sensitivity so books and flat items are not missed
+            internal_conf = max(0.18, confidence_cutoff - 0.10)
+            results = model(pil_img, conf=internal_conf, verbose=False)
             boxes = results[0].boxes
             for b in boxes:
                 cls_id = int(b.cls[0])
@@ -204,7 +214,6 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
                 score = float(b.conf[0])
                 xyxy = b.xyxy[0].tolist()
                 
-                # Map COCO classes to our project targets
                 mapped_class = None
                 if cls_coco == "cell phone":
                     mapped_class = "Phone"
@@ -218,7 +227,7 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
                     mapped_class = "Wireless Earbuds"
                     
                 if mapped_class:
-                    detections.append({
+                    raw_detections.append({
                         "class": mapped_class,
                         "box": (xyxy[0], xyxy[1], xyxy[2], xyxy[3]),
                         "conf": score
@@ -226,72 +235,93 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
         except Exception as e:
             st.error(f"Error during YOLO inference: {e}")
             
-    # 2. Enhanced accessory detector for items (Cables, Earphones, Keys, Cards, Notebook)
-    # Detects high-contrast regions, cables, and flat items often missed by COCO
+    # 2. Enhanced accessory detection for custom items (Notebook, Cables, Earphones, Keys)
     if CV2_AVAILABLE and cv2 is not None:
         try:
             gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            # Find contours of items on desk
             blur = cv2.GaussianBlur(gray, (5, 5), 0)
             edges = cv2.Canny(blur, 40, 120)
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
-            existing_boxes = [d["box"] for d in detections]
-            
-            def is_overlapping(new_box):
-                nx1, ny1, nx2, ny2 = new_box
-                for ex1, ey1, ex2, ey2 in existing_boxes:
-                    ix1, iy1 = max(nx1, ex1), max(ny1, ey1)
-                    ix2, iy2 = min(nx2, ex2), min(ny2, ey2)
-                    if ix1 < ix2 and iy1 < iy2:
-                        inter_area = (ix2 - ix1) * (iy2 - iy1)
-                        new_area = (nx2 - nx1) * (ny2 - ny1)
-                        if inter_area / (new_area + 1e-5) > 0.4:
-                            return True
-                return False
-                
-            candidate_count = 0
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if 1500 < area < (w * h * 0.15):
+                if 1200 < area < (w * h * 0.20):
                     bx, by, bw, bh = cv2.boundingRect(cnt)
-                    box_candidate = (bx, by, bx + bw, by + bh)
+                    aspect = float(bw) / (bh + 1e-5)
                     
-                    if not is_overlapping(box_candidate):
-                        aspect = float(bw) / (bh + 1e-5)
-                        cls_cand = None
-                        conf_cand = 0.82
-                        
-                        # Wires / cables: elongated or winding aspect ratio
-                        if (aspect > 2.2 or aspect < 0.45) and area < (w * h * 0.08):
-                            cls_cand = "Charger / Cable"
-                            conf_cand = 0.84
-                        elif 1.3 <= aspect <= 1.8 and (w * h * 0.005 < area < w * h * 0.04):
-                            cls_cand = "Student ID"
-                            conf_cand = 0.86
-                        elif 0.8 <= aspect <= 1.3 and area < (w * h * 0.03):
-                            cls_cand = "Keys"
-                            conf_cand = 0.81
-                        elif 0.6 <= aspect <= 1.4 and (w * h * 0.03 < area < w * h * 0.12):
-                            if area > (w * h * 0.06):
-                                cls_cand = "Notebook"
-                                conf_cand = 0.88
-                            else:
-                                cls_cand = "Wireless Earbuds"
-                                conf_cand = 0.83
-                                
-                        if cls_cand and candidate_count < 6:
-                            detections.append({
-                                "class": cls_cand,
-                                "box": box_candidate,
-                                "conf": conf_cand
+                    # Books/Notebooks missed by COCO (clean rectangular cover, e.g. 0.7 - 1.4 aspect)
+                    if 0.65 <= aspect <= 1.45 and (w * h * 0.035 < area < w * h * 0.14):
+                        # Verify it has good rectangularity
+                        rect_area = bw * bh
+                        if area / (rect_area + 1e-5) > 0.55:
+                            raw_detections.append({
+                                "class": "Notebook",
+                                "box": (bx, by, bx + bw, by + bh),
+                                "conf": 0.88
                             })
-                            existing_boxes.append(box_candidate)
-                            candidate_count += 1
+                    # Coiled cables / charger adapters (winding thin edges or power brick with cord)
+                    elif (aspect > 1.8 or aspect < 0.55) and (w * h * 0.015 < area < w * h * 0.09):
+                        raw_detections.append({
+                            "class": "Charger / Cable",
+                            "box": (bx, by, bx + bw, by + bh),
+                            "conf": 0.85
+                        })
+                    # Metal key ring / keychain cluster (small, near edges, aspect ~0.9-1.3)
+                    elif 0.8 <= aspect <= 1.3 and (w * h * 0.005 < area < w * h * 0.025):
+                        raw_detections.append({
+                            "class": "Keys",
+                            "box": (bx, by, bx + bw, by + bh),
+                            "conf": 0.82
+                        })
+                    # Earphones (small tangled coil with buds)
+                    elif (w * h * 0.010 < area < w * h * 0.035):
+                        raw_detections.append({
+                            "class": "Wired Earphones",
+                            "box": (bx, by, bx + bw, by + bh),
+                            "conf": 0.81
+                        })
         except Exception:
             pass
-        
-    return detections
+
+    # 3. Intelligent Box Filtering & False-Positive Containment Suppression
+    # Sort detections by confidence descending
+    raw_detections.sort(key=lambda d: d.get("conf", 0.0), reverse=True)
+    filtered_detections = []
+    
+    for cand in raw_detections:
+        cx1, cy1, cx2, cy2 = cand["box"]
+        cand_area = (cx2 - cx1) * (cy2 - cy1)
+        if cand_area <= 0:
+            continue
+            
+        drop = False
+        for kept in filtered_detections:
+            kx1, ky1, kx2, ky2 = kept["box"]
+            kept_area = (kx2 - kx1) * (ky2 - ky1)
+            
+            # Intersection
+            ix1, iy1 = max(cx1, kx1), max(cy1, ky1)
+            ix2, iy2 = min(cx2, kx2), min(cy2, ky2)
+            if ix1 < ix2 and iy1 < iy2:
+                inter_area = (ix2 - ix1) * (iy2 - iy1)
+                
+                # Rule A: High IoU overlap between same or conflicting classes -> keep higher confidence
+                iou = inter_area / (cand_area + kept_area - inter_area + 1e-5)
+                if iou > 0.40:
+                    drop = True
+                    break
+                    
+                # Rule B: Containment - e.g. Wallet or random item inside iPad/Laptop
+                containment = inter_area / (cand_area + 1e-5)
+                if containment > 0.65 and kept["class"] in ["iPad / Tablet", "Notebook"]:
+                    # An item mostly inside laptop/iPad is a false positive
+                    drop = True
+                    break
+                    
+        if not drop and cand.get("conf", 0.0) >= confidence_cutoff:
+            filtered_detections.append(cand)
+            
+    return filtered_detections
 
 # Main Layout
 col_left, col_right = st.columns([3, 2])
