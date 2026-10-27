@@ -1,0 +1,55 @@
+================================================================================
+โครงงาน: Before You Leave: AI-Powered Personal Belongings Detection System
+สโลแกน: "Leave nothing behind. Let AI help you double-check."
+กลุ่ม: Scuba
+================================================================================
+รายชื่อสมาชิก:
+1. Panyasiri Kiattiphumvarakun (รหัสนักศึกษา: 116710905066-2)
+2. Phuwanai Khuyjad (รหัสนักศึกษา: 116710905064-7)
+3. Worawut Phuangmalai (รหัสนักศึกษา: 116710905077-9)
+
+================================================================================
+สรุปภาพรวมของโครงงานตามข้อกำหนด 7 หัวข้อหลัก
+================================================================================
+
+1. บทนำและคำอธิบายปัญหา (Introduction & Problem Statement):
+- ปัญหา: การลืมสิ่งของส่วนตัวจำเป็น (โทรศัพท์มือถือ, กระเป๋าสตางค์, พวงกุญแจ, บัตรนักศึกษา) บนโต๊ะเรียน ในห้องสมุด หรือหอพัก ส่งผลให้เสียเวลา เสียค่าใช้จ่าย และเสี่ยงต่อการสูญหาย
+- กลุ่มเป้าหมาย: นักศึกษา, คนทำงานออฟฟิศ/Co-working space, บุคคลทั่วไป
+- วัตถุประสงค์: พัฒนา AI ตรวจจับของใช้บนโต๊ะ, ตรวจสอบเปรียบเทียบกับ Checklist ของผู้ใช้ (Found vs Not Detected), แจ้งเตือนสิ่งของที่ยังไม่พบก่อนออกจากห้อง
+
+2. งานที่เกี่ยวข้อง (Literature Review):
+- ทบทวนระบบ CCTV Surveillance (Unattended Object Detection) และระบบ Home Assistive Detection ด้วย Faster R-CNN/YOLO
+- เปรียบเทียบกับระบบ Hardware Tag (AirTag/RFID): โครงงานนี้ใช้ภาพถ่ายโต๊ะจากสมาร์ตโฟน ไม่มีต้นทุนค่าแท็ก และมีระบบ Checklist Verification ในตัว
+
+3. การเตรียมชุดข้อมูล (Dataset Preparation):
+- ข้อมูลภาพถ่ายจริง (Self-collected): 800 ภาพ บนโต๊ะเรียน/ห้องสมุด/หอพัก
+- ข้อมูลเสริมจาก Open Datasets: 400 ภาพ (รวม 1,200 ภาพ)
+- คลาสวัตถุ 4 คลาส: Phone, Wallet, Keys, Student_ID
+- การทำ Augmentation: Flip, Rotate ±15°, Brightness/Contrast ±20%, Cutout/Occlusion
+- การแบ่งชุดข้อมูล: Train 70% (840 ภาพ), Validation 20% (240 ภาพ), Test 10% (120 ภาพ)
+
+4. การพัฒนาโมเดล (Model Development):
+- ประเภทงาน: Object Detection (Bounding Box, Class Label, Confidence Score)
+- โมเดล AI: Ultralytics YOLOv8s (Anchor-free, Real-time inference < 30ms, น้ำหนักเบา)
+- การเทรน: Transfer learning จาก COCO weights, Epochs 100, AdamW, Batch size 16, Resolution 640x640
+- เทคโนโลยี: Python, PyTorch, Ultralytics YOLOv8, OpenCV, Roboflow, Streamlit, Google Colab
+
+5. การประเมินโมเดลและผลลัพธ์ (Model Evaluation & Results):
+- ประเมินบนชุดข้อมูลทดสอบ Unseen 120 ภาพ
+- Precision รวม: 92.4%
+- Recall รวม: 88.6%
+- mAP@0.5 รวม: 93.1%
+- mAP@0.5:0.95: 72.8%
+- จุดแข็ง: ตรวจจับได้รวดเร็ว แม่นยำสูงกับ Phone และ Wallet
+- ข้อจำกัด: ของที่อยู่นอกกรอบกล้อง, การบดบังรุนแรง (> 70%), แสงสะท้อนจ้า
+
+6. การสาธิตการใช้งานจริง (Live Demonstration):
+- Pipeline: Image Upload -> YOLOv8 Inference -> Checklist Verification Logic -> Result Display & Warning Banner
+- ทดสอบกับภาพจริงในสภาวะต่างๆ แสดงผลลัพธ์ทั้งกรณีพบครบ และกรณีเตือนเมื่อขาดสิ่งของ
+
+7. การอภิปรายและสรุปผล (Discussion & Conclusion):
+- สรุป: โมเดลสามารถช่วยตรวจสอบและแจ้งเตือนได้จริงอย่างมีประสิทธิภาพ
+- อุปสรรค: กุญแจมีรูปทรงหลากหลายมาก, แสงสะท้อนบนหน้าจอและบัตร
+- แนวทางปรับปรุงในอนาคต: Real-time Video Stream, Mobile App (PWA), เสียงแจ้งเตือน (Voice Alert), เพิ่มคลาสสิ่งของส่วนตัวอื่นๆ
+
+*หมายเหตุ: สามารถดูรายละเอียดฉบับเต็มได้ในไฟล์ project_report.md และรันโปรแกรมต้นแบบผ่าน app.py
