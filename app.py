@@ -234,64 +234,61 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
             blur = cv2.GaussianBlur(gray, (5, 5), 0)
             edges = cv2.Canny(blur, 40, 120)
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        existing_boxes = [d["box"] for d in detections]
-        
-        def is_overlapping(new_box):
-            nx1, ny1, nx2, ny2 = new_box
-            for ex1, ey1, ex2, ey2 in existing_boxes:
-                # Calculate intersection
-                ix1, iy1 = max(nx1, ex1), max(ny1, ey1)
-                ix2, iy2 = min(nx2, ex2), min(ny2, ey2)
-                if ix1 < ix2 and iy1 < iy2:
-                    inter_area = (ix2 - ix1) * (iy2 - iy1)
-                    new_area = (nx2 - nx1) * (ny2 - ny1)
-                    if inter_area / (new_area + 1e-5) > 0.4:
-                        return True
-            return False
             
-        candidate_count = 0
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if 1500 < area < (w * h * 0.15):
-                bx, by, bw, bh = cv2.boundingRect(cnt)
-                box_candidate = (bx, by, bx + bw, by + bh)
+            existing_boxes = [d["box"] for d in detections]
+            
+            def is_overlapping(new_box):
+                nx1, ny1, nx2, ny2 = new_box
+                for ex1, ey1, ex2, ey2 in existing_boxes:
+                    ix1, iy1 = max(nx1, ex1), max(ny1, ey1)
+                    ix2, iy2 = min(nx2, ex2), min(ny2, ey2)
+                    if ix1 < ix2 and iy1 < iy2:
+                        inter_area = (ix2 - ix1) * (iy2 - iy1)
+                        new_area = (nx2 - nx1) * (ny2 - ny1)
+                        if inter_area / (new_area + 1e-5) > 0.4:
+                            return True
+                return False
                 
-                if not is_overlapping(box_candidate):
-                    aspect = float(bw) / (bh + 1e-5)
-                    # Classify accessory based on geometrical characteristics
-                    cls_cand = None
-                    conf_cand = 0.82
+            candidate_count = 0
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if 1500 < area < (w * h * 0.15):
+                    bx, by, bw, bh = cv2.boundingRect(cnt)
+                    box_candidate = (bx, by, bx + bw, by + bh)
                     
-                    # Wires / cables: elongated or winding aspect ratio
-                    if (aspect > 2.2 or aspect < 0.45) and area < (w * h * 0.08):
-                        cls_cand = "Charger / Cable"
-                        conf_cand = 0.84
-                    elif 1.3 <= aspect <= 1.8 and (w * h * 0.005 < area < w * h * 0.04):
-                        cls_cand = "Student ID"
-                        conf_cand = 0.86
-                    elif 0.8 <= aspect <= 1.3 and area < (w * h * 0.03):
-                        cls_cand = "Keys"
-                        conf_cand = 0.81
-                    elif 0.6 <= aspect <= 1.4 and (w * h * 0.03 < area < w * h * 0.12):
-                        # Potential notebook or wireless earbuds case
-                        if area > (w * h * 0.06):
-                            cls_cand = "Notebook"
-                            conf_cand = 0.88
-                        else:
-                            cls_cand = "Wireless Earbuds"
-                            conf_cand = 0.83
-                            
-                    if cls_cand and candidate_count < 6:
-                        detections.append({
-                            "class": cls_cand,
-                            "box": box_candidate,
-                            "conf": conf_cand
-                        })
-                        existing_boxes.append(box_candidate)
-                        candidate_count += 1
-    except Exception:
-        pass
+                    if not is_overlapping(box_candidate):
+                        aspect = float(bw) / (bh + 1e-5)
+                        cls_cand = None
+                        conf_cand = 0.82
+                        
+                        # Wires / cables: elongated or winding aspect ratio
+                        if (aspect > 2.2 or aspect < 0.45) and area < (w * h * 0.08):
+                            cls_cand = "Charger / Cable"
+                            conf_cand = 0.84
+                        elif 1.3 <= aspect <= 1.8 and (w * h * 0.005 < area < w * h * 0.04):
+                            cls_cand = "Student ID"
+                            conf_cand = 0.86
+                        elif 0.8 <= aspect <= 1.3 and area < (w * h * 0.03):
+                            cls_cand = "Keys"
+                            conf_cand = 0.81
+                        elif 0.6 <= aspect <= 1.4 and (w * h * 0.03 < area < w * h * 0.12):
+                            if area > (w * h * 0.06):
+                                cls_cand = "Notebook"
+                                conf_cand = 0.88
+                            else:
+                                cls_cand = "Wireless Earbuds"
+                                conf_cand = 0.83
+                                
+                        if cls_cand and candidate_count < 6:
+                            detections.append({
+                                "class": cls_cand,
+                                "box": box_candidate,
+                                "conf": conf_cand
+                            })
+                            existing_boxes.append(box_candidate)
+                            candidate_count += 1
+        except Exception:
+            pass
         
     return detections
 
