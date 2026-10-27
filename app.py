@@ -10,8 +10,13 @@ Members:
 
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import cv2
+# Safely import cv2 to prevent crashes on Streamlit Cloud if libGL is missing
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except Exception:
+    cv2 = None
+    CV2_AVAILABLE = False
 import time
 
 # Try importing ultralytics YOLO
@@ -222,12 +227,13 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
             
     # 2. Enhanced accessory detector for items (Cables, Earphones, Keys, Cards, Notebook)
     # Detects high-contrast regions, cables, and flat items often missed by COCO
-    try:
-        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-        # Find contours of items on desk
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blur, 40, 120)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if CV2_AVAILABLE and cv2 is not None:
+        try:
+            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+            # Find contours of items on desk
+            blur = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(blur, 40, 120)
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         existing_boxes = [d["box"] for d in detections]
         
