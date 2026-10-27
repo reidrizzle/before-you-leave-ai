@@ -90,15 +90,21 @@ st.markdown("""
 @st.cache_resource
 def load_yolo_model():
     if YOLO_AVAILABLE:
-        # Check if fine-tuned best.pt is present
         import os
+        # 1. Custom fine-tuned model if available
         if os.path.exists("best.pt"):
             try:
-                return YOLO("best.pt"), "Fine-Tuned YOLOv8s (best.pt)"
+                return YOLO("best.pt"), "Custom Fine-Tuned (best.pt)"
+            except Exception:
+                pass
+        # 2. YOLOv8s (Small) for superior accuracy over nano
+        if os.path.exists("yolov8s.pt"):
+            try:
+                return YOLO("yolov8s.pt"), "YOLOv8s (High-Accuracy Model)"
             except Exception:
                 pass
         try:
-            return YOLO("yolov8n.pt"), "Base YOLOv8n (Pretrained)"
+            return YOLO("yolov8n.pt"), "Base YOLOv8n"
         except Exception as e:
             st.warning(f"Could not load YOLO weights: {e}")
             return None, "None"
@@ -199,31 +205,35 @@ def draw_detections(img: Image.Image, detections: list) -> Image.Image:
 def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
     raw_detections = []
     w, h = pil_img.size
-    img_np = np.array(pil_img)
     
-    # 1. Run YOLO with adaptive sensitivity
+    # 1. Run YOLO Neural Network
     if model is not None:
         try:
-            # Run at adaptive sensitivity so books and flat items are not missed
-            internal_conf = max(0.18, confidence_cutoff - 0.10)
-            results = model(pil_img, conf=internal_conf, verbose=False)
+            # Run inference with YOLO model
+            results = model(pil_img, conf=confidence_cutoff, verbose=False)
             boxes = results[0].boxes
             for b in boxes:
                 cls_id = int(b.cls[0])
-                cls_coco = results[0].names[cls_id]
+                cls_name = results[0].names[cls_id]
                 score = float(b.conf[0])
                 xyxy = b.xyxy[0].tolist()
                 
+                # Check if model has our custom class names directly (fine-tuned)
                 mapped_class = None
-                if cls_coco == "cell phone":
+                if cls_name in ITEM_CONFIG:
+                    mapped_class = cls_name
+                # Else map from standard COCO classes
+                elif cls_name == "cell phone":
                     mapped_class = "Phone"
-                elif cls_coco in ["laptop", "tv"]:
+                elif cls_name in ["laptop", "tv"]:
                     mapped_class = "iPad / Tablet"
-                elif cls_coco == "book":
+                elif cls_name == "book":
                     mapped_class = "Notebook"
-                elif cls_coco in ["handbag", "backpack", "suitcase"]:
-                    mapped_class = "Wallet"
-                elif cls_coco in ["mouse", "remote"]:
+                elif cls_name in ["handbag", "backpack", "suitcase"]:
+                    # Wallets / bags: ensure confidence is solid
+                    if score >= 0.40:
+                        mapped_class = "Wallet"
+                elif cls_name in ["mouse", "remote"]:
                     mapped_class = "Wireless Earbuds"
                     
                 if mapped_class:
@@ -235,56 +245,7 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
         except Exception as e:
             st.error(f"Error during YOLO inference: {e}")
             
-    # 2. Enhanced accessory detection for custom items (Notebook, Cables, Earphones, Keys)
-    if CV2_AVAILABLE and cv2 is not None:
-        try:
-            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            blur = cv2.GaussianBlur(gray, (5, 5), 0)
-            edges = cv2.Canny(blur, 40, 120)
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                if 1200 < area < (w * h * 0.20):
-                    bx, by, bw, bh = cv2.boundingRect(cnt)
-                    aspect = float(bw) / (bh + 1e-5)
-                    
-                    # Books/Notebooks missed by COCO (clean rectangular cover, e.g. 0.7 - 1.4 aspect)
-                    if 0.65 <= aspect <= 1.45 and (w * h * 0.035 < area < w * h * 0.14):
-                        # Verify it has good rectangularity
-                        rect_area = bw * bh
-                        if area / (rect_area + 1e-5) > 0.55:
-                            raw_detections.append({
-                                "class": "Notebook",
-                                "box": (bx, by, bx + bw, by + bh),
-                                "conf": 0.88
-                            })
-                    # Coiled cables / charger adapters (winding thin edges or power brick with cord)
-                    elif (aspect > 1.8 or aspect < 0.55) and (w * h * 0.015 < area < w * h * 0.09):
-                        raw_detections.append({
-                            "class": "Charger / Cable",
-                            "box": (bx, by, bx + bw, by + bh),
-                            "conf": 0.85
-                        })
-                    # Metal key ring / keychain cluster (small, near edges, aspect ~0.9-1.3)
-                    elif 0.8 <= aspect <= 1.3 and (w * h * 0.005 < area < w * h * 0.025):
-                        raw_detections.append({
-                            "class": "Keys",
-                            "box": (bx, by, bx + bw, by + bh),
-                            "conf": 0.82
-                        })
-                    # Earphones (small tangled coil with buds)
-                    elif (w * h * 0.010 < area < w * h * 0.035):
-                        raw_detections.append({
-                            "class": "Wired Earphones",
-                            "box": (bx, by, bx + bw, by + bh),
-                            "conf": 0.81
-                        })
-        except Exception:
-            pass
-
-    # 3. Intelligent Box Filtering & False-Positive Containment Suppression
-    # Sort detections by confidence descending
+    # 2. Strict NMS & False-Positive Containment Suppression
     raw_detections.sort(key=lambda d: d.get("conf", 0.0), reverse=True)
     filtered_detections = []
     
@@ -305,16 +266,15 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
             if ix1 < ix2 and iy1 < iy2:
                 inter_area = (ix2 - ix1) * (iy2 - iy1)
                 
-                # Rule A: High IoU overlap between same or conflicting classes -> keep higher confidence
+                # Rule A: High IoU overlap between same classes -> keep higher confidence
                 iou = inter_area / (cand_area + kept_area - inter_area + 1e-5)
-                if iou > 0.40:
+                if iou > 0.45:
                     drop = True
                     break
                     
-                # Rule B: Containment - e.g. Wallet or random item inside iPad/Laptop
+                # Rule B: Containment - e.g. Wallet false-positive inside iPad/Laptop
                 containment = inter_area / (cand_area + 1e-5)
-                if containment > 0.65 and kept["class"] in ["iPad / Tablet", "Notebook"]:
-                    # An item mostly inside laptop/iPad is a false positive
+                if containment > 0.60 and kept["class"] in ["iPad / Tablet", "Notebook"]:
                     drop = True
                     break
                     
