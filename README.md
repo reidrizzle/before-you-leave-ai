@@ -12,11 +12,21 @@ An AI and Computer Vision prototype designed to detect personal belongings on de
 
 ---
 
-## 🎯 Key Features
-- **Object Detection:** Detects essential personal belongings (`Phone`, `Wallet`, `Keys`, `Student ID`) on desks or indoor surfaces.
-- **Dynamic Checklist Verification:** Compares detected items against a customizable checklist to verify status (`✓ Found` vs `⚠ Not Detected`).
-- **Proactive Warning Banner:** Instantly alerts users if any required item is not detected before they leave.
-- **Interactive Web Prototype:** Built with **Streamlit** for quick and responsive demonstration.
+## 🎯 Key Features & Supported Items
+- **AI Object Detection with Bounding Boxes:** Real-time visual bounding boxes drawn over each identified object on the desk with confidence scores.
+- **Supported Belongings (9 Categories):**
+  1. 📱 **Phone** (โทรศัพท์มือถือ)
+  2. 💻 **iPad / Tablet** (ไอแพด / แท็บเล็ต)
+  3. 📓 **Notebook** (สมุดบันทึก / หนังสือ)
+  4. 🔌 **Charger / Cable** (สายชาร์จ / อะแดปเตอร์)
+  5. 🎧 **Wired Earphones** (หูฟังแบบสาย)
+  6. 🎵 **Wireless Earbuds** (หูฟังไร้สาย / เคสหูฟัง)
+  7. 👛 **Wallet** (กระเป๋าสตางค์)
+  8. 🔑 **Keys** (พวงกุญแจ)
+  9. 🪪 **Student ID** (บัตรนักศึกษา / คีย์การ์ด)
+- **Dynamic Checklist Verification:** Compare detected items against a customizable checklist (`✓ Found` vs `⚠ Not Detected`).
+- **Proactive Warning Banner:** Instantly alerts users if any required item is not detected before leaving.
+- **Interactive Web Prototype:** Built with **Streamlit** & **YOLOv8** for fast inference and presentation.
 
 ---
 
@@ -37,12 +47,3 @@ An AI and Computer Vision prototype designed to detect personal belongings on de
    ```bash
    streamlit run app.py
    ```
-
----
-
-## 📊 Evaluation & Metrics
-- **Model Architecture:** YOLOv8s (Anchor-Free Object Detection)
-- **mAP@0.5:** 93.1%
-- **Precision:** 92.4%
-- **Recall:** 88.6%
-- **Inference Latency:** ~28 ms / image
