@@ -246,12 +246,13 @@ def validate_item_geometry(cls_name: str, raw_coco: str, score: float, box: tupl
             return False
 
     # 4. Phone: Standard elongated rectangular smartphone (aspect ratio 1.5 - 2.6)
+    # Requires >= 0.65 confidence to ignore small packets/tissue boxes and detect only real phones
     elif cls_name == "Phone":
+        if score < 0.65:
+            return False
         if aspect_ratio < 1.45 or aspect_ratio > 2.6:
             return False
         if area_ratio < 0.003 or area_ratio > 0.045:
-            return False
-        if score < 0.45:
             return False
 
     # 5. Notebook: Medium rectangular book/notebook
@@ -288,8 +289,7 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                 # Else map from standard COCO classes
                 elif cls_name == "cell phone":
                     mapped_class = "Phone"
-                elif cls_name in ["laptop", "tv"]:
-                    mapped_class = "iPad / Tablet"
+                # Strictly ignore laptops: do NOT map laptop or TV to iPad / Tablet
                 elif cls_name == "book":
                     mapped_class = "Notebook"
                 elif cls_name in ["handbag", "backpack", "suitcase"]:
