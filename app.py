@@ -152,7 +152,8 @@ with st.sidebar:
             
     st.markdown("---")
     st.subheader("⚙️ Detection Parameters")
-    conf_thresh = st.slider("Confidence Threshold", min_value=0.15, max_value=0.85, value=0.28, step=0.05)
+    conf_thresh = st.slider("Confidence Threshold", min_value=0.20, max_value=0.90, value=0.45, step=0.05, help="Minimum confidence required for an object.")
+    strict_filter = st.checkbox("Strict Geometry & Size Filter", value=True, help="Rejects clothes misidentified as wallets, computer mice misidentified as earbuds, and oversized objects.")
     show_boxes = st.checkbox("Show Bounding Boxes on Image", value=True)
     
     st.caption(f"🧠 **Active Model:** {model_source_name}")
@@ -201,15 +202,77 @@ def draw_detections(img: Image.Image, detections: list) -> Image.Image:
         
     return annotated
 
+# Helper to validate detection geometry and eliminate false positives
+def validate_item_geometry(cls_name: str, raw_coco: str, score: float, box: tuple, img_w: int, img_h: int) -> bool:
+    x1, y1, x2, y2 = box
+    bw = x2 - x1
+    bh = y2 - y1
+    if bw <= 0 or bh <= 0:
+        return False
+        
+    total_area = float(img_w * img_h)
+    box_area = float(bw * bh)
+    area_ratio = box_area / total_area
+    aspect_ratio = max(bw, bh) / (min(bw, bh) + 1e-5)
+    
+    # 1. Wallet: Real pocket wallets on a desk are small (< 4.2% of photo).
+    # Folded clothes, jackets, beanies, or backpacks take > 4.5% of the photo.
+    if cls_name == "Wallet":
+        if area_ratio > 0.042:
+            return False
+        if aspect_ratio > 2.3:
+            return False
+        if raw_coco in ["handbag", "backpack", "suitcase"] and score < 0.52:
+            return False
+
+    # 2. Wireless Earbuds: An earbud case (AirPods/Buds) is tiny (< 1.6% of image) and pebble-shaped.
+    elif cls_name == "Wireless Earbuds":
+        if area_ratio > 0.016:
+            return False
+        if aspect_ratio > 1.65:
+            return False
+        if raw_coco == "remote":
+            return False
+        if raw_coco == "mouse" and (area_ratio > 0.013 or score < 0.55):
+            return False
+
+    # 3. iPad / Tablet: Moderate rectangular tablet (2.5% to 38% area, 4:3 or 16:10 aspect ratio)
+    elif cls_name == "iPad / Tablet":
+        if area_ratio < 0.025 or area_ratio > 0.38:
+            return False
+        if aspect_ratio < 1.15 or aspect_ratio > 1.85:
+            return False
+        if score < 0.50:
+            return False
+
+    # 4. Phone: Standard elongated rectangular smartphone (aspect ratio 1.5 - 2.6)
+    elif cls_name == "Phone":
+        if aspect_ratio < 1.45 or aspect_ratio > 2.6:
+            return False
+        if area_ratio < 0.003 or area_ratio > 0.045:
+            return False
+        if score < 0.45:
+            return False
+
+    # 5. Notebook: Medium rectangular book/notebook
+    elif cls_name == "Notebook":
+        if area_ratio < 0.018 or area_ratio > 0.35:
+            return False
+        if aspect_ratio < 1.05 or aspect_ratio > 2.0:
+            return False
+        if score < 0.45:
+            return False
+
+    return True
+
 # Helper to run detection on image with high accuracy & strict filtering
-def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
+def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom: bool = True):
     raw_detections = []
     w, h = pil_img.size
     
     # 1. Run YOLO Neural Network
     if model is not None:
         try:
-            # Run inference with YOLO model
             results = model(pil_img, conf=confidence_cutoff, verbose=False)
             boxes = results[0].boxes
             for b in boxes:
@@ -230,16 +293,20 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
                 elif cls_name == "book":
                     mapped_class = "Notebook"
                 elif cls_name in ["handbag", "backpack", "suitcase"]:
-                    # Wallets / bags: ensure confidence is solid
-                    if score >= 0.40:
-                        mapped_class = "Wallet"
+                    mapped_class = "Wallet"
                 elif cls_name in ["mouse", "remote"]:
                     mapped_class = "Wireless Earbuds"
                     
                 if mapped_class:
+                    box_tuple = (xyxy[0], xyxy[1], xyxy[2], xyxy[3])
+                    # Apply geometric and physical size verification
+                    if strict_geom:
+                        if not validate_item_geometry(mapped_class, cls_name, score, box_tuple, w, h):
+                            continue
+                            
                     raw_detections.append({
                         "class": mapped_class,
-                        "box": (xyxy[0], xyxy[1], xyxy[2], xyxy[3]),
+                        "box": box_tuple,
                         "conf": score
                     })
         except Exception as e:
@@ -268,13 +335,13 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float):
                 
                 # Rule A: High IoU overlap between same classes -> keep higher confidence
                 iou = inter_area / (cand_area + kept_area - inter_area + 1e-5)
-                if iou > 0.45:
+                if iou > 0.40:
                     drop = True
                     break
                     
-                # Rule B: Containment - e.g. Wallet false-positive inside iPad/Laptop
+                # Rule B: Containment - e.g. Wallet/Item false-positive inside iPad/Notebook
                 containment = inter_area / (cand_area + 1e-5)
-                if containment > 0.60 and kept["class"] in ["iPad / Tablet", "Notebook"]:
+                if containment > 0.50 and kept["class"] in ["iPad / Tablet", "Notebook"]:
                     drop = True
                     break
                     
@@ -298,7 +365,7 @@ with col_left:
         if uploaded_file is not None:
             current_img = Image.open(uploaded_file).convert("RGB")
             with st.spinner("AI is analyzing image & detecting belongings..."):
-                detections = run_ai_detection(current_img, conf_thresh)
+                detections = run_ai_detection(current_img, conf_thresh, strict_geom=strict_filter)
         else:
             st.info("👆 Please upload an image of your belongings (e.g. phones, laptop, cables, notebook, etc.)")
             
@@ -358,11 +425,14 @@ with col_left:
             
         current_img = demo_img
 
-    # Display Image with Bounding Boxes
+    # Filter detections matching threshold FIRST
+    valid_detections = [d for d in detections if d.get("conf", 1.0) >= conf_thresh]
+
+    # Display Image with Bounding Boxes (ONLY verified detections)
     if current_img is not None:
-        if show_boxes and detections:
-            annotated_image = draw_detections(current_img, detections)
-            st.image(annotated_image, caption=f"🎯 Detection Result: Found {len(detections)} object(s) with Bounding Boxes", use_container_width=True)
+        if show_boxes and valid_detections:
+            annotated_image = draw_detections(current_img, valid_detections)
+            st.image(annotated_image, caption=f"🎯 Detection Result: Found {len(valid_detections)} verified object(s) with Bounding Boxes", use_container_width=True)
         else:
             st.image(current_img, caption="Original Image (No Bounding Boxes)", use_container_width=True)
 
