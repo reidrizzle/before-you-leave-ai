@@ -119,7 +119,7 @@ st.markdown('<div class="sub-header">AI-Based Personal Item Detection and Checkl
 # Item categories & styling definitions
 ITEM_CONFIG = {
     "Phone": {"th": "โทรศัพท์มือถือ", "color": "#2563EB", "icon": "📱"},
-    "iPad / Tablet": {"th": "ไอแพด / แท็บเล็ต", "color": "#0284C7", "icon": "💻"},
+    "iPad / Tablet": {"th": "ไอแพด / แท็บเล็ต / โน้ตบุ๊ก", "color": "#0284C7", "icon": "💻"},
     "Notebook": {"th": "สมุดบันทึก / หนังสือ", "color": "#EA580C", "icon": "📓"},
     "Charger / Cable": {"th": "สายชาร์จ / อะแดปเตอร์", "color": "#0D9488", "icon": "🔌"},
     "Wired Earphones": {"th": "หูฟังแบบสาย", "color": "#EC4899", "icon": "🎧"},
@@ -231,21 +231,28 @@ def validate_item_geometry(cls_name: str, raw_coco: str, score: float, box: tupl
             return False
         if aspect_ratio > 1.65:
             return False
-        if raw_coco == "remote":
-            return False
-        if raw_coco == "mouse" and (area_ratio > 0.013 or score < 0.55):
+        if raw_coco in ["remote", "mouse"]:
             return False
 
-    # 3. iPad / Tablet: Moderate rectangular tablet (2.5% to 38% area, 4:3 or 16:10 aspect ratio)
-    elif cls_name == "iPad / Tablet":
-        if area_ratio < 0.025 or area_ratio > 0.38:
+    # 3. iPad / Tablet: Moderate to large rectangular device (2% to 45% area, aspect ratio 1.0 - 1.95)
+    elif cls_name in ["iPad / Tablet", "Laptop / iPad"]:
+        if area_ratio < 0.020 or area_ratio > 0.45:
             return False
-        if aspect_ratio < 1.15 or aspect_ratio > 1.85:
+        if aspect_ratio < 1.00 or aspect_ratio > 1.95:
             return False
-        if score < 0.50:
+        if score < 0.40:
             return False
 
-    # 4. Phone: Standard elongated rectangular smartphone (aspect ratio 1.5 - 2.6)
+    # 4. Charger / Cable: Small power bricks, adapters, or coiled cord bundles (0.1% to 18% area)
+    elif cls_name == "Charger / Cable":
+        if area_ratio < 0.001 or area_ratio > 0.18:
+            return False
+        if aspect_ratio > 2.8:
+            return False
+        if score < 0.35:
+            return False
+
+    # 5. Phone: Standard elongated rectangular smartphone (aspect ratio 1.45 - 2.6)
     # Requires >= 0.65 confidence to ignore small packets/tissue boxes and detect only real phones
     elif cls_name == "Phone":
         if score < 0.65:
@@ -255,7 +262,7 @@ def validate_item_geometry(cls_name: str, raw_coco: str, score: float, box: tupl
         if area_ratio < 0.003 or area_ratio > 0.045:
             return False
 
-    # 5. Notebook: Medium rectangular book/notebook
+    # 6. Notebook: Medium rectangular book/notebook
     elif cls_name == "Notebook":
         if area_ratio < 0.018 or area_ratio > 0.35:
             return False
@@ -274,7 +281,7 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
     # 1. Run YOLO Neural Network
     if model is not None:
         try:
-            results = model(pil_img, conf=confidence_cutoff, verbose=False)
+            results = model(pil_img, conf=min(confidence_cutoff, 0.35), verbose=False)
             boxes = results[0].boxes
             for b in boxes:
                 cls_id = int(b.cls[0])
@@ -286,16 +293,19 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                 mapped_class = None
                 if cls_name in ITEM_CONFIG:
                     mapped_class = cls_name
+                elif cls_name == "Laptop / iPad":
+                    mapped_class = "iPad / Tablet"
                 # Else map from standard COCO classes
                 elif cls_name == "cell phone":
                     mapped_class = "Phone"
-                # Strictly ignore laptops: do NOT map laptop or TV to iPad / Tablet
+                elif cls_name in ["laptop", "tv"]:
+                    mapped_class = "iPad / Tablet"
                 elif cls_name == "book":
                     mapped_class = "Notebook"
                 elif cls_name in ["handbag", "backpack", "suitcase"]:
                     mapped_class = "Wallet"
                 elif cls_name in ["mouse", "remote"]:
-                    mapped_class = "Wireless Earbuds"
+                    mapped_class = "Charger / Cable"
                     
                 if mapped_class:
                     box_tuple = (xyxy[0], xyxy[1], xyxy[2], xyxy[3])
@@ -311,8 +321,50 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                     })
         except Exception as e:
             st.error(f"Error during YOLO inference: {e}")
+
+    # 2. Enhanced CV detection for Charger & Cable (laptop power bricks and coiled cables)
+    if CV2_AVAILABLE:
+        try:
+            cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+            _, dark_mask = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
+            kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            cleaned = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel3)
+
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(cleaned)
+            for i in range(1, num_labels):
+                sx, sy, sw, sh, area = stats[i]
+                ar = (sw * sh) / (w * h)
+                if 0.025 <= ar <= 0.08:
+                    asp = max(sw, sh) / min(sw, sh)
+                    if 1.1 <= asp <= 2.2:
+                        roi_gray = gray[sy:sy+sh, sx:sx+sw]
+                        roi_canny = cv2.Canny(roi_gray, 50, 150)
+                        edge_ratio = np.sum(roi_canny > 0) / (sw * sh)
+                        bright_ratio = np.sum(roi_gray > 140) / (sw * sh)
+                        # Cables & power bricks have high edge density and bright labels/floor inside coil
+                        if edge_ratio >= 0.22 and bright_ratio >= 0.35:
+                            # Avoid overlapping with existing detections (laptops, notebooks, phones)
+                            overlap = False
+                            for d in raw_detections:
+                                dx1, dy1, dx2, dy2 = d["box"]
+                                ix1, iy1 = max(sx, dx1), max(sy, dy1)
+                                ix2, iy2 = min(sx + sw, dx2), min(sy + sh, dy2)
+                                if ix1 < ix2 and iy1 < iy2:
+                                    inter = (ix2 - ix1) * (iy2 - iy1)
+                                    if inter / (sw * sh) > 0.30:
+                                        overlap = True
+                                        break
+                            if not overlap:
+                                raw_detections.append({
+                                    "class": "Charger / Cable",
+                                    "conf": 0.85,
+                                    "box": (float(sx), float(sy), float(sx + sw), float(sy + sh))
+                                })
+        except Exception:
+            pass
             
-    # 2. Strict NMS & False-Positive Containment Suppression
+    # 3. Strict NMS & False-Positive Containment Suppression
     raw_detections.sort(key=lambda d: d.get("conf", 0.0), reverse=True)
     filtered_detections = []
     
