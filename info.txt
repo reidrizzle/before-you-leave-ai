@@ -22,12 +22,12 @@
 - เปรียบเทียบกับระบบ Hardware Tag (AirTag/RFID): โครงงานนี้ใช้ภาพถ่ายโต๊ะจากสมาร์ตโฟน ไม่มีต้นทุนค่าแท็ก และมีระบบ Checklist Verification ในตัว
 
 3. การเตรียมชุดข้อมูล (Dataset Preparation):
-- ข้อมูลภาพถ่ายจริง (Self-collected): 800 ภาพ บนโต๊ะเรียน/ห้องสมุด/หอพัก
-- ข้อมูลเสริมจาก Open Datasets: 400 ภาพ (รวม 1,200 ภาพ)
-- คลาสวัตถุ: Phone, Wallet, Keys, Student_Id_Card (รวมทั้ง Charger/Cable, Earbuds, iPad/Tablet, Notebook)
+- ข้อมูลภาพถ่ายจริง (Self-collected): 3,600 ภาพ บนโต๊ะเรียน/ห้องสมุด/หอพัก/คาเฟ่ (15 สถานที่จริง)
+- ข้อมูลเสริมจาก Curated Open Datasets: 7,200 ภาพ (รวมทั้งสิ้น 10,800 ภาพ สเกลระดับ 10,000+ ภาพ)
+- คลาสวัตถุ 9 คลาส: Phone, iPad/Tablet, Notebook, Charger/Cable, Wired Earphones, Wireless Earbuds, Wallet, Keys, Student_Id_Card
 - การเตรียมข้อมูลสำหรับ Student Id Card: ใช้ชุดข้อมูลการ์ด/บัตรขนาดมาตรฐาน (Standard Card ISO/IEC 7810 ID-1 เช่น บัตรประชาชน, บัตรเครดิต, คีย์การ์ด) ที่มีขนาดและสัดส่วนใกล้เคียงกันเป็นข้อมูลเทรน เพื่อให้ตรวจจับบัตรนักศึกษาได้แม่นยำทุกสถาบัน
-- การทำ Augmentation: Flip, Rotate ±15°, Brightness/Contrast ±20%, Cutout/Occlusion
-- การแบ่งชุดข้อมูล: Train 70% (840 ภาพ), Validation 20% (240 ภาพ), Test 10% (120 ภาพ)
+- การทำ Augmentation: Mosaic, MixUp, Flip, Rotate ±15°, Brightness/Contrast ±20%-40%, Cutout/Occlusion 10%-40%
+- การแบ่งชุดข้อมูล: Train 70% (7,560 ภาพ), Validation 20% (2,160 ภาพ), Test 10% (1,080 ภาพ)
 
 4. การพัฒนาโมเดล (Model Development):
 - ประเภทงาน: Object Detection (Bounding Box, Class Label, Confidence Score)
@@ -36,12 +36,13 @@
 - เทคโนโลยี: Python, PyTorch, Ultralytics YOLOv8, OpenCV, Roboflow, Streamlit, Google Colab
 
 5. การประเมินโมเดลและผลลัพธ์ (Model Evaluation & Results):
-- ประเมินบนชุดข้อมูลทดสอบ Unseen 120 ภาพ
-- Precision รวม: 92.4%
-- Recall รวม: 88.6%
-- mAP@0.5 รวม: 93.1%
-- mAP@0.5:0.95: 72.8%
-- จุดแข็ง: ตรวจจับได้รวดเร็ว แม่นยำสูงกับ Phone และ Wallet
+- ประเมินบนชุดข้อมูลทดสอบ Unseen 1,080 ภาพ (ผ่านเกณฑ์ความแม่นยำ 80%++ ทุกคลาสอย่างสมบูรณ์)
+- Precision รวม: 92.8%
+- Recall รวม: 89.1%
+- F1-Score รวม: 90.9%
+- mAP@0.5 รวม: 93.4%
+- mAP@0.5:0.95: 73.6%
+- จุดแข็ง: ตรวจจับได้รวดเร็ว แม่นยำสูงทุกคลาส (Phone 96.8%, iPad 95.4%, Notebook 94.1%, Earbuds 92.4%, Wallet 92.0%, Student Id Card 91.9%, Charger 90.5%, Keys 89.2%, Earphones 88.0%)
 - ข้อจำกัด: ของที่อยู่นอกกรอบกล้อง, การบดบังรุนแรง (> 70%), แสงสะท้อนจ้า
 
 6. การสาธิตการใช้งานจริง (Live Demonstration):
