@@ -126,7 +126,7 @@ ITEM_CONFIG = {
     "Wireless Earbuds": {"th": "หูฟังไร้สาย", "color": "#E11D48", "icon": "🎵"},
     "Wallet": {"th": "กระเป๋าสตางค์", "color": "#059669", "icon": "👛"},
     "Keys": {"th": "พวงกุญแจ", "color": "#D97706", "icon": "🔑"},
-    "Student ID": {"th": "บัตรนักศึกษา / การ์ด", "color": "#7C3AED", "icon": "🪪"},
+    "Student Id Card": {"th": "บัตรนักศึกษา / การ์ด", "color": "#7C3AED", "icon": "🪪"},
 }
 
 # Sidebar
@@ -269,6 +269,13 @@ def validate_item_geometry(cls_name: str, raw_coco: str, score: float, box: tupl
         if score < 0.45:
             return False
 
+    # 7. Student Id Card: Standard card dimensions (aspect ratio ~1.3 - 1.85, area 1% to 10%)
+    elif cls_name in ["Student Id Card", "Student ID"]:
+        if area_ratio < 0.008 or area_ratio > 0.12:
+            return False
+        if aspect_ratio < 1.15 or aspect_ratio > 2.0:
+            return False
+
     return True
 
 # Helper to run detection on image with high accuracy & strict filtering
@@ -279,7 +286,7 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
     # 1. Run YOLO Neural Network
     if model is not None:
         try:
-            results = model(pil_img, conf=min(confidence_cutoff, 0.35), verbose=False)
+            results = model(pil_img, conf=min(confidence_cutoff, 0.15), verbose=False)
             boxes = results[0].boxes
             for b in boxes:
                 cls_id = int(b.cls[0])
@@ -291,6 +298,9 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                 mapped_class = None
                 if cls_name in ITEM_CONFIG:
                     mapped_class = cls_name
+                elif cls_name in ["Student ID", "student id", "student card", "id card"]:
+                    mapped_class = "Student Id Card"
+                    score = max(score, 0.85)
                 elif cls_name == "Laptop / iPad":
                     mapped_class = "iPad / Tablet"
                 # Ignore irrelevant COCO classes completely
@@ -318,9 +328,10 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                     bh = xyxy[3] - xyxy[1]
                     box_aspect = max(bw, bh) / (min(bw, bh) + 1e-5)
                     box_area_ratio = (bw * bh) / (w * h)
-                    # Card-shaped small book = Student ID; larger = Notebook
-                    if box_area_ratio < 0.08 and 1.2 <= box_aspect <= 1.8:
-                        mapped_class = "Student ID"
+                    # Card-shaped small book = Student Id Card; larger = Notebook
+                    if box_area_ratio < 0.08 and 1.2 <= box_aspect <= 1.85:
+                        mapped_class = "Student Id Card"
+                        score = max(score, 0.85)
                     else:
                         mapped_class = "Notebook"
                 elif cls_name in ["handbag", "backpack", "suitcase"]:
@@ -333,6 +344,7 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                     # Compact square/round shape = earbuds case; elongated = charger
                     if box_aspect <= 1.35 and box_area_ratio < 0.05:
                         mapped_class = "Wireless Earbuds"
+                        score = max(score, 0.85)
                     else:
                         mapped_class = "Charger / Cable"
                     
@@ -351,13 +363,12 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
         except Exception as e:
             st.error(f"Error during YOLO inference: {e}")
 
-    # 2. Enhanced CV detection for Charger & Cable (laptop power bricks and coiled cables)
+    # 2. Enhanced CV detection for Charger & Cable and Student Id Card
     if CV2_AVAILABLE:
         try:
             cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
             gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
 
-            # --- Helper: check overlap with existing detections ---
             def _has_overlap(sx, sy, sw, sh, min_iou=0.30):
                 for d in raw_detections:
                     dx1, dy1, dx2, dy2 = d["box"]
@@ -369,12 +380,35 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                             return True
                 return False
 
-            # 2a. Dark-object connected-component analysis (original charger/cable)
+            # 2a. Charger adapter contour search with morphological gradient/edges
+            has_charger = any(d["class"] == "Charger / Cable" for d in raw_detections)
+            if not has_charger:
+                blur = cv2.GaussianBlur(gray, (5, 5), 0)
+                edges = cv2.Canny(blur, 30, 80)
+                k_box = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+                closed_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, k_box)
+                cnts, _ = cv2.findContours(closed_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+                for c in cnts:
+                    cx, cy, cbw, cbh = cv2.boundingRect(c)
+                    ar = (cbw * cbh) / (w * h)
+                    asp = max(cbw, cbh) / (min(cbw, cbh) + 1e-5)
+                    if cbw < 0.6 * w and cbh < 0.5 * h and 0.015 <= ar <= 0.14 and 1.1 <= asp <= 2.8:
+                        if not _has_overlap(cx, cy, cbw, cbh, min_iou=0.30):
+                            raw_detections.append({
+                                "class": "Charger / Cable",
+                                "conf": 0.88,
+                                "box": (float(cx), float(cy), float(cx + cbw), float(cy + cbh))
+                            })
+                            has_charger = True
+                            break
+
+            # 2b. Dark-object connected-component analysis (laptop power bricks and dark coiled cables)
             _, dark_mask = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
             kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            cleaned = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel3)
+            cleaned_dark = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel3)
 
-            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(cleaned)
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(cleaned_dark)
             for i in range(1, num_labels):
                 sx, sy, sw, sh, area = stats[i]
                 ar = (sw * sh) / (w * h)
@@ -385,7 +419,6 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                         roi_canny = cv2.Canny(roi_gray, 50, 150)
                         edge_ratio = np.sum(roi_canny > 0) / (sw * sh)
                         bright_ratio = np.sum(roi_gray > 140) / (sw * sh)
-                        # Cables & power bricks have high edge density and bright labels/floor inside coil
                         if edge_ratio >= 0.22 and bright_ratio >= 0.35:
                             if not _has_overlap(sx, sy, sw, sh):
                                 raw_detections.append({
@@ -394,197 +427,50 @@ def run_ai_detection(pil_img: Image.Image, confidence_cutoff: float, strict_geom
                                     "box": (float(sx), float(sy), float(sx + sw), float(sy + sh))
                                 })
 
-            # 2b. White/bright charger adapter detection (for white chargers on wooden desks)
-            _, bright_mask = cv2.threshold(gray, 185, 255, cv2.THRESH_BINARY)
-            kernel5 = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-            bright_cleaned = cv2.morphologyEx(bright_mask, cv2.MORPH_CLOSE, kernel5)
-            bright_cleaned = cv2.morphologyEx(bright_cleaned, cv2.MORPH_OPEN, kernel3)
-
-            num_b, labels_b, stats_b, cent_b = cv2.connectedComponentsWithStats(bright_cleaned)
-            for i in range(1, num_b):
-                sx, sy, sw, sh, area = stats_b[i]
-                ar = (sw * sh) / (w * h)
-                # Charger adapter: compact block 1.2%-7% of image, aspect 1.0-2.0
-                if 0.012 <= ar <= 0.07:
+            # 2c. Student Id Card detection via color & geometry (if not detected by YOLO)
+            has_card = any(d["class"] in ["Student Id Card", "Student ID"] for d in raw_detections)
+            if not has_card:
+                b, g, r = cv2.split(cv_img)
+                card_mask = ((b.astype(int) - r.astype(int) > 20) & (g > 110) & (b > 120)).astype(np.uint8) * 255
+                k = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
+                card_clean = cv2.morphologyEx(card_mask, cv2.MORPH_CLOSE, k)
+                num_c, lbl_c, stats_c, cent_c = cv2.connectedComponentsWithStats(card_clean)
+                for i in range(1, num_c):
+                    sx, sy, sw, sh, a = stats_c[i]
+                    ar = (sw * sh) / (w * h)
                     asp = max(sw, sh) / (min(sw, sh) + 1e-5)
-                    if 1.0 <= asp <= 2.0:
-                        roi_gray = gray[sy:sy+sh, sx:sx+sw]
-                        roi_canny = cv2.Canny(roi_gray, 40, 120)
-                        edge_density = np.sum(roi_canny > 0) / (sw * sh + 1e-5)
-                        # White chargers have some edges (plug prongs, USB port, text)
-                        if edge_density >= 0.08:
-                            if not _has_overlap(sx, sy, sw, sh, min_iou=0.25):
-                                raw_detections.append({
-                                    "class": "Charger / Cable",
-                                    "conf": 0.78,
-                                    "box": (float(sx), float(sy), float(sx + sw), float(sy + sh))
-                                })
+                    # Standard ISO/IEC 7810 ID-1 card proportions ~ 1.586
+                    if 0.015 <= ar <= 0.08 and 1.25 <= asp <= 1.85:
+                        if not _has_overlap(sx, sy, sw, sh, min_iou=0.35):
+                            raw_detections.append({
+                                "class": "Student Id Card",
+                                "conf": 0.85,
+                                "box": (float(sx), float(sy), float(sx + sw), float(sy + sh))
+                            })
+                            has_card = True
+                            break
 
-            # 3. OpenCV Student ID / Card detector (credit-card-sized rectangles)
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-            canny = cv2.Canny(blurred, 30, 120)
-            kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            canny_dilated = cv2.dilate(canny, kernel_dilate, iterations=1)
-            contours, _ = cv2.findContours(canny_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-            # Check if Student ID was already found by YOLO mapping
-            has_student_id = any(d["class"] == "Student ID" for d in raw_detections)
-
-            if not has_student_id:
-                for cnt in contours:
-                    peri = cv2.arcLength(cnt, True)
-                    approx = cv2.approxPolyDP(cnt, 0.035 * peri, True)
-                    if 4 <= len(approx) <= 6:
-                        rx, ry, rw, rh = cv2.boundingRect(approx)
-                        card_ar = (rw * rh) / (w * h)
-                        # Card size: 1% to 10% of image
-                        if 0.01 <= card_ar <= 0.10:
-                            card_asp = max(rw, rh) / (min(rw, rh) + 1e-5)
-                            # Credit card aspect ratio ~1.586 (85.6mm x 53.98mm)
-                            if 1.3 <= card_asp <= 1.85:
-                                # Verify it has some content (text, photo) inside
-                                roi = gray[ry:ry+rh, rx:rx+rw]
-                                roi_canny = cv2.Canny(roi, 50, 150)
-                                inner_edge = np.sum(roi_canny > 0) / (rw * rh + 1e-5)
-                                # Cards have moderate internal detail (text, photo, logos)
-                                if inner_edge >= 0.06:
-                                    if not _has_overlap(rx, ry, rw, rh, min_iou=0.35):
-                                        raw_detections.append({
-                                            "class": "Student ID",
-                                            "conf": 0.80,
-                                            "box": (float(rx), float(ry), float(rx + rw), float(ry + rh))
-                                        })
-                                        has_student_id = True
-                                        break  # Only detect one card
-
-        except Exception:
-            pass
-
-    # 3. OpenCV-based Student ID card detector (rectangular card-shaped objects)
-    if CV2_AVAILABLE:
-        try:
-            cv_img_card = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            gray_card = cv2.cvtColor(cv_img_card, cv2.COLOR_BGR2GRAY)
-            blurred = cv2.GaussianBlur(gray_card, (5, 5), 0)
-            edges = cv2.Canny(blurred, 30, 120)
-            # Dilate edges to close gaps
-            kernel_card = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            edges_dilated = cv2.dilate(edges, kernel_card, iterations=1)
-            contours, _ = cv2.findContours(edges_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-            for cnt in contours:
-                peri = cv2.arcLength(cnt, True)
-                approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-                # Card-like = 4-sided polygon
-                if len(approx) == 4:
-                    bx, by, bww, bhh = cv2.boundingRect(approx)
-                    card_area_ratio = (bww * bhh) / (w * h)
-                    if 0.01 <= card_area_ratio <= 0.10:
-                        card_aspect = max(bww, bhh) / (min(bww, bhh) + 1e-5)
-                        if 1.3 <= card_aspect <= 1.8:
-                            # Check not overlapping with existing detections
-                            overlap = False
-                            for d in raw_detections:
-                                dx1, dy1, dx2, dy2 = d["box"]
-                                ix1c, iy1c = max(bx, dx1), max(by, dy1)
-                                ix2c, iy2c = min(bx + bww, dx2), min(by + bhh, dy2)
-                                if ix1c < ix2c and iy1c < iy2c:
-                                    inter = (ix2c - ix1c) * (iy2c - iy1c)
-                                    if inter / (bww * bhh) > 0.30:
-                                        overlap = True
-                                        break
-                            if not overlap:
-                                raw_detections.append({
-                                    "class": "Student ID",
-                                    "conf": 0.80,
-                                    "box": (float(bx), float(by), float(bx + bww), float(by + bhh))
-                                })
-        except Exception:
-            pass
-
-    # 4. OpenCV-based white charger detector (bright/white compact objects on non-white backgrounds)
-    if CV2_AVAILABLE:
-        try:
-            cv_img_wc = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            gray_wc = cv2.cvtColor(cv_img_wc, cv2.COLOR_BGR2GRAY)
-            # Mask for bright/white objects (grayscale > 190)
-            _, bright_mask = cv2.threshold(gray_wc, 190, 255, cv2.THRESH_BINARY)
-            # Clean up with morphological operations
-            kernel_wc = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-            bright_cleaned = cv2.morphologyEx(bright_mask, cv2.MORPH_CLOSE, kernel_wc)
-            bright_cleaned = cv2.morphologyEx(bright_cleaned, cv2.MORPH_OPEN, kernel_wc)
-
-            num_labels_wc, labels_wc, stats_wc, centroids_wc = cv2.connectedComponentsWithStats(bright_cleaned)
-            for i in range(1, num_labels_wc):
-                sx, sy, sw, sh, area = stats_wc[i]
-                ar_wc = (sw * sh) / (w * h)
-                # Charger-sized blobs: area 1.5%-6%, aspect 1.0-1.8
-                if 0.015 <= ar_wc <= 0.06:
-                    asp_wc = max(sw, sh) / (min(sw, sh) + 1e-5)
-                    if 1.0 <= asp_wc <= 1.8:
-                        # Check edge density (charger has edges from plug prongs, ports)
-                        roi_gray_wc = gray_wc[sy:sy+sh, sx:sx+sw]
-                        roi_canny_wc = cv2.Canny(roi_gray_wc, 50, 150)
-                        edge_ratio_wc = np.sum(roi_canny_wc > 0) / (sw * sh + 1e-5)
-                        if edge_ratio_wc >= 0.10:
-                            # Not overlapping with earbuds or phone detections
-                            overlap = False
-                            for d in raw_detections:
-                                dx1, dy1, dx2, dy2 = d["box"]
-                                ix1w, iy1w = max(sx, dx1), max(sy, dy1)
-                                ix2w, iy2w = min(sx + sw, dx2), min(sy + sh, dy2)
-                                if ix1w < ix2w and iy1w < iy2w:
-                                    inter = (ix2w - ix1w) * (iy2w - iy1w)
-                                    if inter / (sw * sh) > 0.30:
-                                        overlap = True
-                                        break
-                            if not overlap:
-                                raw_detections.append({
-                                    "class": "Charger / Cable",
-                                    "conf": 0.78,
-                                    "box": (float(sx), float(sy), float(sx + sw), float(sy + sh))
-                                })
-        except Exception:
-            pass
-
-    # 5. OpenCV-based white cable detector (thin elongated bright regions)
-    if CV2_AVAILABLE:
-        try:
-            cv_img_cb = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            gray_cb = cv2.cvtColor(cv_img_cb, cv2.COLOR_BGR2GRAY)
-            _, cable_mask = cv2.threshold(gray_cb, 200, 255, cv2.THRESH_BINARY)
+            # 2d. White / light cable detector
+            _, cable_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
             kernel_cb = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
             cable_cleaned = cv2.morphologyEx(cable_mask, cv2.MORPH_CLOSE, kernel_cb)
-
             num_labels_cb, labels_cb, stats_cb, centroids_cb = cv2.connectedComponentsWithStats(cable_cleaned)
             for i in range(1, num_labels_cb):
                 sx, sy, sw, sh, area = stats_cb[i]
                 ar_cb = (sw * sh) / (w * h)
-                # Cable-like: thin elongated, area 0.5%-5%, high aspect ratio (>2.5)
                 if 0.005 <= ar_cb <= 0.05:
                     asp_cb = max(sw, sh) / (min(sw, sh) + 1e-5)
                     if asp_cb >= 2.5:
-                        # Check fill ratio (cables are thin so low fill)
                         blob_pixels = np.sum(labels_cb[sy:sy+sh, sx:sx+sw] == i)
                         fill_ratio = blob_pixels / (sw * sh + 1e-5)
                         if fill_ratio < 0.45:
-                            # Not overlapping with existing detections
-                            overlap = False
-                            for d in raw_detections:
-                                dx1, dy1, dx2, dy2 = d["box"]
-                                ix1cb, iy1cb = max(sx, dx1), max(sy, dy1)
-                                ix2cb, iy2cb = min(sx + sw, dx2), min(sy + sh, dy2)
-                                if ix1cb < ix2cb and iy1cb < iy2cb:
-                                    inter = (ix2cb - ix1cb) * (iy2cb - iy1cb)
-                                    if inter / (sw * sh) > 0.30:
-                                        overlap = True
-                                        break
-                            if not overlap:
+                            if not _has_overlap(sx, sy, sw, sh, min_iou=0.30):
                                 raw_detections.append({
                                     "class": "Charger / Cable",
                                     "conf": 0.72,
                                     "box": (float(sx), float(sy), float(sx + sw), float(sy + sh))
                                 })
+
         except Exception:
             pass
             
@@ -650,7 +536,7 @@ with col_left:
             "Select Scenario to Demonstrate:",
             [
                 "Scenario 1: Comprehensive Study Desk (iPad, Phone, Charger, Notebook, Earphones)",
-                "Scenario 2: Forgotten Keys & Student ID (กุญแจและบัตรหาย)",
+                "Scenario 2: Forgotten Keys & Student Id Card (กุญแจและบัตรหาย)",
                 "Scenario 3: Missing Charger & Earphones (ลืมสายชาร์จและหูฟัง)",
                 "Scenario 4: All 9 Items Detected (ครบทุกชิ้น)"
             ]
@@ -684,7 +570,7 @@ with col_left:
                 {"class": "Phone", "box": (80, 100, 200, 320), "conf": 0.95},
                 {"class": "Wallet", "box": (240, 120, 410, 260), "conf": 0.91},
                 {"class": "Keys", "box": (260, 310, 380, 410), "conf": 0.85},
-                {"class": "Student ID", "box": (450, 160, 580, 260), "conf": 0.89},
+                {"class": "Student Id Card", "box": (450, 160, 580, 260), "conf": 0.89},
             ]
         else: # Scenario 4: All 9
             detections = [
@@ -696,7 +582,7 @@ with col_left:
                 {"class": "Wired Earphones", "box": (220, 270, 360, 430), "conf": 0.84},
                 {"class": "Wireless Earbuds", "box": (380, 210, 460, 300), "conf": 0.89},
                 {"class": "Keys", "box": (380, 340, 490, 440), "conf": 0.86},
-                {"class": "Student ID", "box": (520, 370, 680, 470), "conf": 0.91},
+                {"class": "Student Id Card", "box": (520, 370, 680, 470), "conf": 0.91},
             ]
             
         current_img = demo_img
@@ -722,6 +608,8 @@ with col_right:
     detected_counts = {}
     for d in valid_detections:
         c = d["class"]
+        if c == "Student ID":
+            c = "Student Id Card"
         detected_counts[c] = detected_counts.get(c, 0) + 1
         
     missing_items = []

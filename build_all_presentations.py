@@ -300,7 +300,7 @@ def build_thai_presentation(output_path):
         ["Wireless Earbuds", "🎵", "หูฟังไร้สาย", "ตลับเคสชาร์จทรงก้อนหินขนาดกะทัดรัด (Pebble-shaped) พื้นที่ < 1.6%"],
         ["Wallet", "👛", "กระเป๋าสตางค์", "หนัง/ผ้าทรงสี่เหลี่ยมผับ พื้นที่ขนาดเล็กบนโต๊ะ (< 4.2%)"],
         ["Keys", "🔑", "พวงกุญแจ", "วัสดุโลหะสะท้อนแสง รูปทรงอิสระพร้อมห่วงกุญแจ"],
-        ["Student ID", "🪪", "บัตรนักศึกษา / การ์ด", "บัตรแข็งพลาสติกทรงสี่เหลี่ยมผืนผ้ามาตรฐาน (ID-1) ขอบตัดมน"]
+        ["Student Id Card", "🪪", "บัตรนักศึกษา / การ์ด", "บัตรแข็งพลาสติกทรงสี่เหลี่ยมผืนผ้ามาตรฐาน (ID-1) ขอบตัดมน (ใช้ข้อมูลบัตรขนาดใกล้เคียงกันเทรน)"]
     ]
     create_styled_table(s3, Inches(0.8), Inches(1.6), Inches(11.7), Inches(5.1), headers_s3, rows_s3, True, [Inches(2.5), Inches(0.8), Inches(2.6), Inches(5.8)])
 
@@ -384,6 +384,7 @@ def build_thai_presentation(output_path):
     add_card_content(s7, Inches(0.8), Inches(1.6), Inches(3.7), Inches(5.2), "1. แหล่งที่มาของข้อมูล (Data Sources)", [
         "Self-Collected Images (800 ภาพ): ถ่ายภาพจริงโดยสมาชิกกลุ่ม Scuba จากสภาพแวดล้อมที่ใช้งานจริง เช่น โต๊ะเรียน, โต๊ะหอพัก, ห้องสมุด, และร้านกาแฟ",
         "Curated Open Datasets (400 ภาพ): คัดสรรภาพของใช้ส่วนตัวเพิ่มเติมจาก Roboflow Universe และ COCO Open Subsets รวมทั้งสิ้น 1,200 ภาพ",
+        "Student Id Card Strategy: ใช้ชุดข้อมูล Card ขนาดมาตรฐาน (ISO/IEC 7810 ID-1 เช่น บัตรประชาชน, บัตรเครดิต, สมาร์ตการ์ด) ที่มีขนาดและมิติสัดส่วนใกล้เคียงกันเป็นข้อมูลเทรนตัวแทน เพื่อให้ตรวจจับบัตรนักศึกษาได้แม่นยำทุกสถาบัน",
         "ความหลากหลายของมุมมอง: ทั้งมุมมอง Bird-Eye View (90°) และมุมเฉียงระดับสายตา (45° – 60°)",
         "ความหลากหลายของพื้นผิว: โต๊ะไม้สีเข้ม, โต๊ะลามิเนตสีขาว, โต๊ะหินอ่อน และพื้นห้อง"
     ], C_CYAN, True)
@@ -443,7 +444,7 @@ def build_thai_presentation(output_path):
         ["Notebook", "93.5%", "89.4%", "93.8%", "ตรวจจับได้ดีเยี่ยมทั้งหนังสือเล่มหนาและสมุดจดบันทึก"],
         ["Wallet", "91.2%", "86.5%", "91.5%", "ความแม่นยำสูงหลังตัด False Positive จากเสื้อผ้าด้วยตัวกรองขนาด"],
         ["Charger / Cable", "89.8%", "85.2%", "89.1%", "ตรวจจับได้ดีเยี่ยมด้วยระบบ Hybrid CV (ตัวบล็อก + ขดสายไฟ)"],
-        ["Student ID", "88.5%", "84.3%", "88.2%", "ขนาดเล็ก ต้องการภาพคมชัดและแสงเพียงพอเพื่อจับขอบบัตร"],
+        ["Student Id Card", "88.5%", "84.3%", "88.2%", "ขนาดเล็ก ต้องการภาพคมชัดและแสงเพียงพอเพื่อจับขอบบัตร"],
         ["Keys", "87.4%", "84.1%", "88.6%", "รูปทรงอิสระและโลหะสะท้อนแสง ต้องการโมเดล Anchor-Free"]
     ]
     create_styled_table(s9, Inches(0.8), Inches(2.7), Inches(11.7), Inches(4.1), headers_s9, rows_s9, True, [Inches(2.2), Inches(1.4), Inches(1.4), Inches(1.5), Inches(5.2)])
@@ -647,7 +648,7 @@ def build_english_presentation(output_path):
         ["Wireless Earbuds", "🎵", "หูฟังไร้สาย", "Small pebble-shaped charging case, compact image area (< 1.6%)"],
         ["Wallet", "👛", "กระเป๋าสตางค์", "Compact folded leather/fabric pouch, area < 4.2%"],
         ["Keys", "🔑", "พวงกุญแจ", "Reflective metallic irregular shapes with key rings and tags"],
-        ["Student ID", "🪪", "บัตรนักศึกษา / การ์ด", "Standard rectangular plastic card (ID-1 ISO format), rounded corners"]
+        ["Student Id Card", "🪪", "บัตรนักศึกษา / การ์ด", "Standard rectangular plastic card (ID-1 ISO format), trained on cards with similar dimensions"]
     ]
     create_styled_table(s3, Inches(0.8), Inches(1.6), Inches(11.7), Inches(5.1), headers_s3_en, rows_s3_en, False, [Inches(2.5), Inches(0.8), Inches(2.6), Inches(5.8)])
 
@@ -731,6 +732,7 @@ def build_english_presentation(output_path):
     add_card_content(s7, Inches(0.8), Inches(1.6), Inches(3.7), Inches(5.2), "1. Data Acquisition Sources", [
         "Self-Collected Dataset (800 Images): Photographed directly by Scuba team members across realistic study environments (university classrooms, dorm desks, library tables, cafes)",
         "Curated Open Datasets (400 Images): Augmented with open-source belongings datasets from Roboflow Universe and COCO subsets (1,200 total images)",
+        "Student Id Card Strategy: Uses standardized card datasets with identical physical dimensions (ISO/IEC 7810 ID-1: national IDs, credit cards, smart cards) as training proxy to ensure robust detection across universities",
         "Multi-Angle Perspectives: Captured via Top-Down View (90°) and natural seated eye-level angles (45° – 60°)",
         "Background Diversity: Dark wood tables, white laminate desks, marble countertops, and patterned surfaces"
     ], C_CYAN, False)
@@ -789,7 +791,7 @@ def build_english_presentation(output_path):
         ["Notebook", "93.5%", "89.4%", "93.8%", "Excellent localization across both hardcovers and loose leaf notebooks"],
         ["Wallet", "91.2%", "86.5%", "91.5%", "Strong accuracy following geometric size suppression of clothing"],
         ["Charger / Cable", "89.8%", "85.2%", "89.1%", "Strong localization using hybrid CV (brick + coiled wire texture)"],
-        ["Student ID", "88.5%", "84.3%", "88.2%", "Small target size; requires sharp resolution to resolve card boundaries"],
+        ["Student Id Card", "88.5%", "84.3%", "88.2%", "Small target size; requires sharp resolution to resolve card boundaries"],
         ["Keys", "87.4%", "84.1%", "88.6%", "Irregular metallic reflections; benefited heavily from anchor-free head"]
     ]
     create_styled_table(s9, Inches(0.8), Inches(2.7), Inches(11.7), Inches(4.1), headers_s9_en, rows_s9_en, False, [Inches(2.2), Inches(1.4), Inches(1.4), Inches(1.5), Inches(5.2)])

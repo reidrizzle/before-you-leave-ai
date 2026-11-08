@@ -23,7 +23,7 @@ An AI and Computer Vision prototype designed to detect personal belongings on de
   6. 🎵 **Wireless Earbuds** (หูฟังไร้สาย / เคสหูฟัง)
   7. 👛 **Wallet** (กระเป๋าสตางค์)
   8. 🔑 **Keys** (พวงกุญแจ)
-  9. 🪪 **Student ID** (บัตรนักศึกษา / คีย์การ์ด)
+  9. 🪪 **Student Id Card** (บัตรนักศึกษา / การ์ดขนาดมาตรฐาน — เทรนด้วยข้อมูลบัตรขนาดใกล้เคียงกัน เช่น บัตรประชาชน, บัตรเครดิต, คีย์การ์ด)
 - **Dynamic Checklist Verification:** Compare detected items against a customizable checklist (`✓ Found` vs `⚠ Not Detected`).
 - **Proactive Warning Banner:** Instantly alerts users if any required item is not detected before leaving.
 - **Interactive Web Prototype:** Built with **Streamlit** & **YOLOv8** for fast inference and presentation.

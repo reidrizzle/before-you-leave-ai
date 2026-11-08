@@ -24,7 +24,8 @@
 3. การเตรียมชุดข้อมูล (Dataset Preparation):
 - ข้อมูลภาพถ่ายจริง (Self-collected): 800 ภาพ บนโต๊ะเรียน/ห้องสมุด/หอพัก
 - ข้อมูลเสริมจาก Open Datasets: 400 ภาพ (รวม 1,200 ภาพ)
-- คลาสวัตถุ 4 คลาส: Phone, Wallet, Keys, Student_ID
+- คลาสวัตถุ: Phone, Wallet, Keys, Student_Id_Card (รวมทั้ง Charger/Cable, Earbuds, iPad/Tablet, Notebook)
+- การเตรียมข้อมูลสำหรับ Student Id Card: ใช้ชุดข้อมูลการ์ด/บัตรขนาดมาตรฐาน (Standard Card ISO/IEC 7810 ID-1 เช่น บัตรประชาชน, บัตรเครดิต, คีย์การ์ด) ที่มีขนาดและสัดส่วนใกล้เคียงกันเป็นข้อมูลเทรน เพื่อให้ตรวจจับบัตรนักศึกษาได้แม่นยำทุกสถาบัน
 - การทำ Augmentation: Flip, Rotate ±15°, Brightness/Contrast ±20%, Cutout/Occlusion
 - การแบ่งชุดข้อมูล: Train 70% (840 ภาพ), Validation 20% (240 ภาพ), Test 10% (120 ภาพ)
 
